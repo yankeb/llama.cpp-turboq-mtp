@@ -426,6 +426,17 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
             if ((Q->ne[0] != 128 && Q->ne[0] != 256) || V->ne[0] != Q->ne[0]) {
                 return BEST_FATTN_KERNEL_NONE;
             }
+            // Diagnostic: GGML_CUDA_TBQ4_DISABLE forces F16 KV path (issue #4)
+            {
+                static bool tbq4_disable_checked = false;
+                static bool tbq4_disable = false;
+                if (!tbq4_disable_checked) {
+                    tbq4_disable = (getenv("GGML_CUDA_TBQ4_DISABLE") != nullptr);
+                    tbq4_disable_checked = true;
+                    if (tbq4_disable) fprintf(stderr, "GGML_CUDA_TBQ4_DISABLE: forcing F16 KV path\n");
+                }
+                if (tbq4_disable) return BEST_FATTN_KERNEL_NONE;
+            }
             if (turing_mma_available(cc)) {
                 return BEST_FATTN_KERNEL_MMA_TBQ4;
             }
@@ -576,6 +587,19 @@ static void ggml_cuda_flash_attn_ext_mma_tbq4(ggml_backend_cuda_context & ctx, g
     const int DV  = (int)V->ne[0];
     GGML_ASSERT(DKQ == 128 || DKQ == 256);
     GGML_ASSERT(DV == DKQ);
+
+    // Diagnostic: GGML_CUDA_TBQ4_DISABLE should prevent reaching this function.
+    // If reached with env var set, abort with clear message (issue #4 debugging).
+    {
+        static bool checked = false;
+        if (!checked) {
+            checked = true;
+            if (getenv("GGML_CUDA_TBQ4_DISABLE")) {
+                fprintf(stderr, "BUG: GGML_CUDA_TBQ4_DISABLE set but TBQ4 fused FA called — kernel selector bug\n");
+                GGML_ABORT("TBQ4 fused FA reached despite GGML_CUDA_TBQ4_DISABLE");
+            }
+        }
+    }
 
     float max_bias = 0.0f;
     memcpy(&max_bias, (const float *) KQV->op_params + 1, sizeof(float));
