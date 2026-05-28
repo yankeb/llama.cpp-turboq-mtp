@@ -658,6 +658,16 @@ private:
     bool sleeping = false;
 
     void destroy() {
+        // Tear down speculative state before the target context/model.  Native
+        // MTP registers a hook on ctx_tgt and owns ctx_mtp, so its destructor
+        // must run while both ctx_tgt (from llama_init) and model_mtp are still
+        // alive.  Relying on member destruction order frees model_mtp before
+        // spec and can leave spec with a dangling ctx_tgt after llama_init.reset().
+        spec.reset();
+        ctx_dft.reset();
+        model_dft.reset();
+        model_mtp.reset();
+
         llama_init.reset();
 
         ctx_tgt = nullptr;
